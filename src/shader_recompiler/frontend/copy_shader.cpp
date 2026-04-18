@@ -4,6 +4,7 @@
 #include "shader_recompiler/frontend/copy_shader.h"
 #include "shader_recompiler/frontend/decode.h"
 #include "shader_recompiler/ir/attribute.h"
+#include "common/logging/log.h"
 
 namespace Shader {
 
@@ -12,7 +13,10 @@ CopyShaderData ParseCopyShader(std::span<const u32> code) {
     Gcn::GcnDecodeContext decoder;
 
     constexpr u32 token_mov_vcchi = 0xBEEB03FF;
-    ASSERT_MSG(code[0] == token_mov_vcchi, "First instruction is not s_mov_b32 vcc_hi, #imm");
+    if (code[0] != token_mov_vcchi) {
+        LOG_WARNING(Render_Recompiler, "First instruction is not s_mov_b32 vcc_hi, #imm");
+        return CopyShaderData{};
+    }
 
     std::array<s32, 64> offsets{};
     offsets.fill(-1);
