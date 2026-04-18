@@ -143,6 +143,10 @@ void RingAccessElimination(const IR::Program& program, const RuntimeInfo& runtim
                     break;
                 }
 
+                if (info.gs_copy_data.attr_map.empty()) {
+                    break;
+                }
+
                 const auto offset = inst.Flags<IR::BufferInstInfo>().inst_offset.Value();
                 const auto data = ir.BitCast<IR::F32>(IR::U32{inst.Arg(2)});
                 const auto comp_ofs = output_vertices * 4u;
@@ -150,7 +154,9 @@ void RingAccessElimination(const IR::Program& program, const RuntimeInfo& runtim
 
                 const auto vc_read_ofs = (((offset / comp_ofs) * comp_ofs) % output_size) * 16u;
                 const auto& it = info.gs_copy_data.attr_map.find(vc_read_ofs);
-                ASSERT(it != info.gs_copy_data.attr_map.cend());
+                if (it == info.gs_copy_data.attr_map.cend()) {
+                    break;
+                }
                 const auto& [attr, comp] = it->second;
 
                 inst.Invalidate();
