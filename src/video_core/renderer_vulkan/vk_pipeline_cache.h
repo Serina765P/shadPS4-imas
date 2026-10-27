@@ -78,6 +78,15 @@ public:
 
     const GraphicsPipeline* GetGraphicsPipeline();
 
+    /// Returns and clears the hash of the most recently created graphics pipeline that no draw has
+    /// used yet. Lets the rasterizer log the first draw with a brand new pipeline, which is where
+    /// device losses are reproducible.
+    std::optional<u64> TakePendingNewPipeline() {
+        const std::optional<u64> pending = pending_new_pipeline;
+        pending_new_pipeline.reset();
+        return pending;
+    }
+
     const ComputePipeline* GetComputePipeline();
 
     using Result = std::tuple<const Shader::Info*, vk::ShaderModule,
@@ -132,6 +141,7 @@ private:
     GraphicsPipelineKey graphics_key{};
     ComputePipelineKey compute_key{};
     u32 num_new_pipelines{}; // new pipelines added to the cache since the game start
+    std::optional<u64> pending_new_pipeline{}; // created but not drawn with yet
 
     // Only if Config::collectShadersForDebug()
     tsl::robin_map<vk::ShaderModule,

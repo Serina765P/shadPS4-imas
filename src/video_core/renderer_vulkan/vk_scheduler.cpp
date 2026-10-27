@@ -208,6 +208,14 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
                      "workload rerun with vkValidation=true, vkValidationSync=true and "
                      "shouldDumpShaders=true, and check the Windows event log for a display driver "
                      "reset (nvlddmkm event 4101) to distinguish a hung GPU from an illegal access.");
+        const std::string fault_report = instance.GetDeviceFaultReport();
+        if (fault_report.empty()) {
+            LOG_CRITICAL(Render_Vulkan,
+                         "Driver provided no device fault details (VK_EXT_device_fault unavailable, "
+                         "or the GPU was reset by the driver: no fault was recorded for this submit)");
+        } else {
+            LOG_CRITICAL(Render_Vulkan, "Driver device fault details: {}", fault_report);
+        }
     }
     ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
 

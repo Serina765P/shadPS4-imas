@@ -182,15 +182,6 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(Stage stage, LogicalS
         const auto params_vc = AmdGpu::GetParams(regs.vs_program);
         gs_info.vs_copy = params_vc.code;
         gs_info.vs_copy_hash = params_vc.hash;
-        // The declared output vertex count is the guest ring budget, which may be far above what
-        // the shader really emits. Log the raw state so a device loss on the first draw with this
-        // pipeline can be tied back to it (see the clamp in RingAccessElimination).
-        LOG_INFO(Render_Vulkan,
-                 "Geometry program: max_vert_out = {}, vert_itemsize = {}, esgs_ring_itemsize = {}, "
-                 "instance_cnt = {}, mode = {}, copy shader {:#x}",
-                 u32(regs.vgt_gs_max_vert_out), regs.vgt_gs_vert_itemsize[0],
-                 regs.vgt_esgs_ring_itemsize, gs_info.num_invocations, u32(gs_info.mode),
-                 gs_info.vs_copy_hash);
         DumpShader(gs_info.vs_copy, gs_info.vs_copy_hash, Shader::Stage::Vertex, 0, "copy.bin");
         break;
     }
@@ -333,6 +324,21 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline() {
     if (is_new) {
         const auto pipeline_hash = std::hash<GraphicsPipelineKey>{}(graphics_key);
         LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {:#x}", pipeline_hash);
+        pending_new_pipeline = pipeline_hash;
+
+        // Log the guest geometry state once per created pipeline. A lost device on the first draw
+        // with a new pipeline is otherwise very hard to tie back to the geometry configuration
+        // (see the OutputVertices clamp in RingAccessElimination).
+        if (infos[static_cast<u32>(Shader::LogicalStage::Geometry)] != nullptr) {
+            const auto& regs = liverpool->regs;
+            LOG_INFO(Render_Vulkan,
+                     "GS pipeline {:#x}: max_vert_out = {}, vert_itemsize = {}, "
+                     "esgs_ring_itemsize = {}, instance_cnt = {}, mode = {}, copy shader {:#x}",
+                     pipeline_hash, u32(regs.vgt_gs_max_vert_out), regs.vgt_gs_vert_itemsize[0],
+                     regs.vgt_esgs_ring_itemsize,
+                     regs.vgt_gs_instance_cnt.IsEnabled() ? regs.vgt_gs_instance_cnt.count : 1,
+                     u32(regs.vgt_gs_mode.mode), AmdGpu::GetParams(regs.vs_program).hash);
+        }
 
         GraphicsPipeline::SerializationSupport sdata{};
         it.value() = std::make_unique<GraphicsPipeline>(

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <span>
+#include <string>
 #include <unordered_map>
 
 #include "video_core/renderer_vulkan/vk_platform.h"
@@ -452,6 +453,15 @@ public:
         return total_memory_budget;
     }
 
+    /// Returns whether the driver is able to explain why the device was lost.
+    bool IsDeviceFaultSupported() const {
+        return device_fault;
+    }
+
+    /// Returns a human readable description of the current device fault, or an empty string when
+    /// the driver cannot report one (VK_EXT_device_fault unavailable, or the GPU was reset).
+    [[nodiscard]] std::string GetDeviceFaultReport() const;
+
     /// Determines if a format is supported for a set of feature flags.
     [[nodiscard]] bool IsFormatSupported(vk::Format format, vk::FormatFeatureFlags2 flags) const;
 
@@ -522,6 +532,7 @@ private:
     bool workgroup_memory_explicit_layout{};
     bool maintenance_8{};
     bool attachment_feedback_loop{};
+    bool device_fault{};
     bool image_2d_view_of_3d{};
     bool image_view_min_lod{};
     bool supports_memory_budget{};

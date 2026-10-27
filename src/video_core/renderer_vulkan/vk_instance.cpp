@@ -19,6 +19,27 @@
 namespace Vulkan {
 
 namespace {
+const char* DeviceFaultAddressTypeName(vk::DeviceFaultAddressTypeEXT type) {
+    switch (type) {
+    case vk::DeviceFaultAddressTypeEXT::eNone:
+        return "none";
+    case vk::DeviceFaultAddressTypeEXT::eReadInvalid:
+        return "read-invalid";
+    case vk::DeviceFaultAddressTypeEXT::eWriteInvalid:
+        return "write-invalid";
+    case vk::DeviceFaultAddressTypeEXT::eExecuteInvalid:
+        return "execute-invalid";
+    case vk::DeviceFaultAddressTypeEXT::eInstructionPointerUnknown:
+        return "instruction-pointer-unknown";
+    case vk::DeviceFaultAddressTypeEXT::eInstructionPointerInvalid:
+        return "instruction-pointer-invalid";
+    case vk::DeviceFaultAddressTypeEXT::eInstructionPointerFault:
+        return "instruction-pointer-fault";
+    default:
+        return "unknown";
+    }
+}
+} // namespace
 
 std::vector<vk::PhysicalDevice> EnumeratePhysicalDevices(vk::UniqueInstance& instance) {
     auto [devices_result, devices] = instance->enumeratePhysicalDevices();
@@ -303,6 +324,9 @@ bool Instance::CreateDevice() {
     amd_mixed_attachment_samples = add_extension(VK_AMD_MIXED_ATTACHMENT_SAMPLES_EXTENSION_NAME);
     shader_atomic_float = add_extension(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
     shader_atomic_float2 = add_extension(VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME);
+    // Lets the driver explain a lost device (faulting address and vendor fault code) instead of
+    // leaving the emulator with a bare VK_ERROR_DEVICE_LOST. Diagnostic only, no behaviour change.
+    device_fault = add_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
     if (shader_atomic_float2) {
         shader_atomic_float2_features =
             feature_chain.get<vk::PhysicalDeviceShaderAtomicFloat2FeaturesEXT>();
@@ -503,7 +527,14 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceImageViewMinLodFeaturesEXT{
             .minLod = true,
         },
+        vk::PhysicalDeviceFaultFeaturesEXT{
+            .deviceFault = true,
+        },
     };
+
+    if (!device_fault) {
+        device_chain.unlink<vk::PhysicalDeviceFaultFeaturesEXT>();
+    }
 
     if (!custom_border_color) {
         device_chain.unlink<vk::PhysicalDeviceCustomBorderColorFeaturesEXT>();
@@ -754,6 +785,42 @@ u64 Instance::GetDeviceMemoryUsage() const {
         total_usage += memory_budget_props.heapUsage[heap];
     }
     return total_usage;
+}
+
+std::string Instance::GetDeviceFaultReport() const {
+    if (!device_fault) {
+        return {};
+    }
+
+    vk::DeviceFaultCountsEXT counts{};
+    auto result = device->getFaultInfoEXT(&counts, nullptr);
+    if (result != vk::Result::eSuccess) {
+        return fmt::format("query failed ({})", vk::to_string(result));
+    }
+
+    std::vector<vk::DeviceFaultAddressInfoEXT> address_infos(counts.addressInfoCount);
+    std::vector<vk::DeviceFaultVendorInfoEXT> vendor_infos(counts.vendorInfoCount);
+    vk::DeviceFaultInfoEXT info{
+        .pAddressInfos = address_infos.empty() ? nullptr : address_infos.data(),
+        .pVendorInfos = vendor_infos.empty() ? nullptr : vendor_infos.data(),
+    };
+    result = device->getFaultInfoEXT(&counts, &info);
+    if (result != vk::Result::eSuccess) {
+        return fmt::format("query failed ({})", vk::to_string(result));
+    }
+
+    std::string report = fmt::format("description = '{}'", info.description.data());
+    for (const auto& address : address_infos) {
+        report += fmt::format("; fault address {:#x} (precision {:#x}, type {})",
+                             address.reportedAddress, address.addressPrecision,
+                             DeviceFaultAddressTypeName(address.addressType));
+    }
+    for (const auto& vendor : vendor_infos) {
+        report += fmt::format("; vendor fault '{}' code {:#x} data {:#x}",
+                             vendor.description.data(), vendor.vendorFaultCode,
+                             vendor.vendorFaultData);
+    }
+    return report;
 }
 
 vk::FormatFeatureFlags2 Instance::GetFormatFeatureFlags(vk::Format format) const {

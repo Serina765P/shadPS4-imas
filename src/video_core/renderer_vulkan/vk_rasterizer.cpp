@@ -219,6 +219,14 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     const auto& fetch_shader = pipeline->GetFetchShader();
     const auto [vertex_offset, instance_offset] = GetDrawOffsets(regs, vs_info, fetch_shader);
 
+    if (const auto new_pipeline = pipeline_cache.TakePendingNewPipeline(); new_pipeline) {
+        LOG_INFO(Render_Vulkan,
+                 "First draw with new pipeline {:#x}: indexed = {}, count = {}, instances = {}, "
+                 "vertex_offset = {}, instance_offset = {}, index_offset = {:#x}",
+                 *new_pipeline, is_indexed, regs.num_indices, regs.num_instances.NumInstances(),
+                 vertex_offset, instance_offset, index_offset);
+    }
+
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline->Handle());
 
@@ -285,6 +293,13 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
 
     // We can safely ignore both SGPR UD indices and results of fetch shader parsing, as vertex and
     // instance offsets will be automatically applied by Vulkan from indirect args buffer.
+
+    if (const auto new_pipeline = pipeline_cache.TakePendingNewPipeline(); new_pipeline) {
+        LOG_INFO(Render_Vulkan,
+                 "First indirect draw with new pipeline {:#x}: indexed = {}, max_count = {}, "
+                 "stride = {}, args = {:#x}, count = {:#x}",
+                 *new_pipeline, is_indexed, max_count, stride, arg_address, count_address);
+    }
 
     const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline->Handle());
