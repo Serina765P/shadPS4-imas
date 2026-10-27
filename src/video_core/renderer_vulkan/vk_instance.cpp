@@ -39,7 +39,6 @@ const char* DeviceFaultAddressTypeName(vk::DeviceFaultAddressTypeEXT type) {
         return "unknown";
     }
 }
-} // namespace
 
 std::vector<vk::PhysicalDevice> EnumeratePhysicalDevices(vk::UniqueInstance& instance) {
     auto [devices_result, devices] = instance->enumeratePhysicalDevices();
