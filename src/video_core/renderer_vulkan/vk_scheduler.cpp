@@ -192,6 +192,23 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
 
     ImGui::Core::TextureManager::Submit();
     auto submit_result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
+    if (submit_result == vk::Result::eErrorDeviceLost) {
+        // A lost device means the GPU either hit a fault (illegal address/instruction) or was reset
+        // by the driver because it stopped responding (TDR). Everything the emulator can cheaply
+        // observe is reported here because the assert below terminates the process.
+        LOG_CRITICAL(Render_Vulkan,
+                     "Device lost on queue submit: signal tick = {}, waiting on {} semaphore(s), "
+                     "signaling {} semaphore(s), device memory {} MiB / {} MiB, thread = '{}'",
+                     signal_value, info.num_wait_semas, info.num_signal_semas,
+                     instance.GetDeviceMemoryUsage() / (1024 * 1024),
+                     instance.GetTotalMemoryBudget() / (1024 * 1024),
+                     Common::GetCurrentThreadName());
+        LOG_CRITICAL(Render_Vulkan,
+                     "This is a GPU-side failure, not a guest game fault. To capture the offending "
+                     "workload rerun with vkValidation=true, vkValidationSync=true and "
+                     "shouldDumpShaders=true, and check the Windows event log for a display driver "
+                     "reset (nvlddmkm event 4101) to distinguish a hung GPU from an illegal access.");
+    }
     ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
 
     // Release submit_mutex before Refresh/Allocate/PopPendingOperations to avoid

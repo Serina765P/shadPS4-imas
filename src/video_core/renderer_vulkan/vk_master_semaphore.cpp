@@ -3,6 +3,7 @@
 
 #include <limits>
 #include "common/assert.h"
+#include "common/logging/log.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
 
@@ -61,8 +62,21 @@ void MasterSemaphore::Wait(u64 tick) {
         .pValues = &tick,
     };
 
-    while (instance.GetDevice().waitSemaphores(&wait_info, WAIT_TIMEOUT_NS) !=
-           vk::Result::eSuccess) {
+    while (true) {
+        const auto wait_result = instance.GetDevice().waitSemaphores(&wait_info, WAIT_TIMEOUT_NS);
+        if (wait_result == vk::Result::eSuccess) {
+            break;
+        }
+        if (wait_result == vk::Result::eErrorDeviceLost) {
+            // Once the device is lost the timeline semaphore will never advance, so the loop below
+            // would spin forever. Report the loss instead of hanging the emulator.
+            LOG_CRITICAL(Render_Vulkan,
+                         "Device lost while waiting for GPU tick {} (current tick {}, known GPU tick "
+                         "{})",
+                         tick, CurrentTick(), KnownGpuTick());
+            ASSERT_MSG(false, "Device lost while waiting for the GPU");
+            return;
+        }
         Refresh();
         if (IsFree(tick)) {
             break;
