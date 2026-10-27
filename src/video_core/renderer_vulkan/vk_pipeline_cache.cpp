@@ -331,7 +331,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline() {
         // key is needed to tell a character/effect/postprocess pipeline apart in the next report.
         LOG_INFO(Render_Vulkan,
                  "New graphics pipeline {:#x}: vs = {:#x}, fs = {:#x}, gs = {:#x}, mrt_mask = {:#x}, "
-                 "color_samples = {}/{}/{}/{}/{}/{}, depth_samples = {}, prim = {}, patch_points = {}",
+                 "color_samples = {}/{}/{}/{}/{}, depth_samples = {}, prim = {}, patch_points = {}",
                  pipeline_hash,
                  graphics_key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Vertex)],
                  graphics_key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Fragment)],
