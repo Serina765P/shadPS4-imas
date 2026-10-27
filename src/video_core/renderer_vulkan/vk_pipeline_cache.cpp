@@ -702,6 +702,19 @@ PipelineCache::Result PipelineCache::GetProgram(Stage stage, LogicalStage l_stag
         RegisterShaderMeta(info, spec.fetch_shader_data, spec, perm_hash, perm_idx);
         program->AddPermut(module, std::move(spec));
     } else {
+        // A reused module keeps the binding numbers it was emitted with, so the cursor must be
+        // advanced exactly as an emission would have done it (multi-binding image descriptors
+        // included) or every following stage - the vertex shader, which is bound after the
+        // fragment shader - reads the wrong descriptors at draw time.
+        u32 extra_bindings = 0;
+        for (const auto& image : info.images) {
+            extra_bindings += image.NumBindings(info) - 1;
+        }
+        if (extra_bindings != 0) {
+            LOG_INFO(Render_Vulkan,
+                     "Reusing {} stage with {} extra image descriptor(s), binding cursor {}",
+                     u32(info.l_stage), extra_bindings, binding.unified);
+        }
         info.AddBindings(binding);
         module = it->module;
         perm_idx = std::distance(program->modules.begin(), it);

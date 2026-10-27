@@ -188,7 +188,14 @@ struct Info : InfoPersistent {
 
     void AddBindings(Backend::Bindings& bnd) const {
         bnd.buffer += buffers.size();
-        bnd.unified += buffers.size() + images.size() + samplers.size();
+        // Must match the numbering used when the module was emitted and by the pipeline layout:
+        // a storage image that needs the dynamic-LOD fallback consumes one binding per mip level
+        // (see ImageResource::NumBindings), not a single one.
+        u32 unified_bindings = buffers.size() + samplers.size();
+        for (const auto& image : images) {
+            unified_bindings += image.NumBindings(*this);
+        }
+        bnd.unified += unified_bindings;
         bnd.user_data += ud_mask.NumRegs();
     }
 
