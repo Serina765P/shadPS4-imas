@@ -50,16 +50,19 @@ CI 产物对应提交 `f8bb2b33`：
 
 ## 4. 请用新构建做的三次实验（按性价比排序）
 
+新构建：`630a10e7`（CI run [40514050350](https://github.com/Serina765P/shadPS4-imas/actions/runs/40514050350)，
+Windows/Linux 均 success）。请先只跑实验 A，它的日志就能决定后续方向。
+
 **A. 直接复现（必做）**：地狱特训 Pro，保持 `pipeline_cache_enabled = 0`（和崩溃时一致）。
-新日志中关注三行：
+新日志中关注四行：
+* `Reusing {} stage with {} extra image descriptor(s)` → 本轮修复的那条路径是否真的被走到
+  （出现即说明"复用阶段带多绑定图像"，正是根因所在）；
 * `Driver device fault details: ...` → 有地址 = 非法访问（读/写/执行），无细节 = 驱动复位/TDR；
 * `GPU trace: ...` → 最近 512 次绘制与提交边界，最后一段就是可疑提交；
 * `New graphics pipeline {:#x}: ...` / `First draw with new pipeline {:#x}: ...`。
 
-**B. 热缓存对照（一次运行即可证伪 H2）**：把 `pipeline_cache_enabled` 改成 **1**（首次运行会
-生成缓存在磁盘，之后同一课程再跑一次），再进地狱特训 Pro。
-* 不崩 → 问题与"运行时新建管线/冷编译"路径强相关（H2），后续可针对管线创建路径修；
-* 仍崩 → 与缓存无关，回到 H1/H3。
+**B. 热缓存对照（一次运行即可证伪"冷编译"相关假设）**：把 `pipeline_cache_enabled` 改成 **1**
+（首次运行会生成缓存在磁盘，之后同一课程再跑一次），再进地狱特训 Pro。
 
 **C. 最强定位（可选，较慢）**：`vkValidation=true` + `vkValidationSync=true`。同步校验会把提交串行化，
 断言就会落在真正出错的那次提交上，校验层会直接指出非法对象/参数。
