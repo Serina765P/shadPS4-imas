@@ -125,6 +125,10 @@ struct Info : InfoPersistent {
 
     ReadConstType readconst_types{};
     CopyShaderData gs_copy_data;
+    // Geometry shader output vertex count to declare in SPIR-V. Computed from the copy shader
+    // during ring access elimination, because VGT_GS_MAX_VERT_OUT is a ring buffer budget rather
+    // than the number of vertices that are really produced.
+    u32 gs_output_vertices{};
     u32 uses_patches{};
 
     VAddr pgm_base;

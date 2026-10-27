@@ -161,6 +161,28 @@ void RingAccessElimination(const IR::Program& program, const RuntimeInfo& runtim
             FillMissingGsCopyData(info.gs_copy_data, fallback_copy_data);
         }
 
+        // Decide how many output vertices to declare in the emitted SPIR-V. A geometry stage is a
+        // real emitting stage, so this count is a hard bound and not a hint: it must stay above the
+        // number of vertices the shader emits. The guest register is a ring buffer budget that can
+        // be far above that number, and declaring it verbatim can exceed the device limits
+        // (maxGeometryOutputVertices / maxGeometryTotalOutputComponents). That is undefined
+        // behaviour and can lose the Vulkan device. Cap the declaration at the count every Vulkan
+        // implementation is required to accept; a value of zero keeps the previous behaviour of
+        // using the register value as-is.
+        constexpr u32 MaxPortableGsOutputVertices = 256;
+        u32 declared_vertices = gs_info.output_vertices;
+        if (declared_vertices > MaxPortableGsOutputVertices) {
+            // The copy shader count is only a heuristic, so report it but do not declare it: an
+            // underestimated count would truncate the geometry the guest asked to emit.
+            LOG_WARNING(Render_Recompiler,
+                        "Geometry shader {}: VGT_GS_MAX_VERT_OUT {} exceeds the portable limit, "
+                        "declaring {} output vertices (copy shader consumes {})",
+                        gs_info.vs_copy_hash, declared_vertices, MaxPortableGsOutputVertices,
+                        info.gs_copy_data.output_vertices);
+            declared_vertices = MaxPortableGsOutputVertices;
+        }
+        info.gs_output_vertices = declared_vertices;
+
         ForEachInstruction([&](IR::IREmitter& ir, IR::Inst& inst) {
             const auto opcode = inst.GetOpcode();
             switch (opcode) {

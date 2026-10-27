@@ -182,6 +182,15 @@ const Shader::RuntimeInfo& PipelineCache::BuildRuntimeInfo(Stage stage, LogicalS
         const auto params_vc = AmdGpu::GetParams(regs.vs_program);
         gs_info.vs_copy = params_vc.code;
         gs_info.vs_copy_hash = params_vc.hash;
+        // The declared output vertex count is the guest ring budget, which may be far above what
+        // the shader really emits. Log the raw state so a device loss on the first draw with this
+        // pipeline can be tied back to it (see the clamp in RingAccessElimination).
+        LOG_INFO(Render_Vulkan,
+                 "Geometry program: max_vert_out = {}, vert_itemsize = {}, esgs_ring_itemsize = {}, "
+                 "instance_cnt = {}, mode = {}, copy shader {:#x}",
+                 u32(regs.vgt_gs_max_vert_out), regs.vgt_gs_vert_itemsize[0],
+                 regs.vgt_esgs_ring_itemsize, gs_info.num_invocations, u32(gs_info.mode),
+                 gs_info.vs_copy_hash);
         DumpShader(gs_info.vs_copy, gs_info.vs_copy_hash, Shader::Stage::Vertex, 0, "copy.bin");
         break;
     }

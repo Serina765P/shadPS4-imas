@@ -410,8 +410,13 @@ void DefineEntryPoint(const Info& info, EmitContext& ctx, Id main) {
         ctx.AddExecutionMode(main, GetInputPrimitiveType(ctx.runtime_info.gs_info.in_primitive));
         ctx.AddExecutionMode(main,
                              GetOutputPrimitiveType(ctx.runtime_info.gs_info.out_primitive[0]));
+        // Prefer the count derived from the copy shader. The guest register is a ring buffer
+        // budget and can be far larger than the number of vertices really produced; declaring such
+        // a value can exceed the device limits (maxGeometryOutputVertices /
+        // maxGeometryTotalOutputComponents), which is undefined behaviour and can lose the device.
         ctx.AddExecutionMode(main, spv::ExecutionMode::OutputVertices,
-                             ctx.runtime_info.gs_info.output_vertices);
+                             info.gs_output_vertices != 0 ? info.gs_output_vertices
+                                                          : ctx.runtime_info.gs_info.output_vertices);
         ctx.AddExecutionMode(main, spv::ExecutionMode::Invocations,
                              ctx.runtime_info.gs_info.num_invocations);
         break;
