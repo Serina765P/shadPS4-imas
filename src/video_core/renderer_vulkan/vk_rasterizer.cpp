@@ -7,6 +7,7 @@
 #include "shader_recompiler/runtime_info.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
+#include "video_core/renderer_vulkan/vk_gpu_trace.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -219,6 +220,11 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     const auto& fetch_shader = pipeline->GetFetchShader();
     const auto [vertex_offset, instance_offset] = GetDrawOffsets(regs, vs_info, fetch_shader);
 
+    const u64 pipeline_hash = std::hash<GraphicsPipelineKey>{}(pipeline->GetGraphicsKey());
+    GpuTrace::PushDraw(pipeline_hash, is_indexed, regs.num_indices,
+                       regs.num_instances.NumInstances(), vertex_offset, instance_offset,
+                       index_offset);
+
     if (const auto new_pipeline = pipeline_cache.TakePendingNewPipeline(); new_pipeline) {
         LOG_INFO(Render_Vulkan,
                  "First draw with new pipeline {:#x}: indexed = {}, count = {}, instances = {}, "
@@ -293,6 +299,9 @@ void Rasterizer::DrawIndirect(bool is_indexed, VAddr arg_address, u32 offset, u3
 
     // We can safely ignore both SGPR UD indices and results of fetch shader parsing, as vertex and
     // instance offsets will be automatically applied by Vulkan from indirect args buffer.
+
+    GpuTrace::PushIndirectDraw(std::hash<GraphicsPipelineKey>{}(pipeline->GetGraphicsKey()),
+                               is_indexed, max_count, stride, arg_address);
 
     if (const auto new_pipeline = pipeline_cache.TakePendingNewPipeline(); new_pipeline) {
         LOG_INFO(Render_Vulkan,

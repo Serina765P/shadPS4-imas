@@ -6,6 +6,7 @@
 #include "common/logging/log.h"
 #include "common/thread.h"
 #include "imgui/renderer/texture_manager.h"
+#include "video_core/renderer_vulkan/vk_gpu_trace.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 
@@ -191,6 +192,7 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
     };
 
     ImGui::Core::TextureManager::Submit();
+    GpuTrace::PushSubmit();
     auto submit_result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
     if (submit_result == vk::Result::eErrorDeviceLost) {
         // A lost device means the GPU either hit a fault (illegal address/instruction) or was reset
@@ -216,6 +218,7 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         } else {
             LOG_CRITICAL(Render_Vulkan, "Driver device fault details: {}", fault_report);
         }
+        GpuTrace::Dump("device lost on queue submit");
     }
     ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
 
