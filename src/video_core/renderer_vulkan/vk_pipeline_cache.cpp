@@ -326,6 +326,21 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline() {
         LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {:#x}", pipeline_hash);
         pending_new_pipeline = pipeline_hash;
 
+        // Identify the pipeline state that is about to be used for the first time. Every device
+        // loss observed so far happens on the first draw with a freshly created pipeline, so the
+        // key is needed to tell a character/effect/postprocess pipeline apart in the next report.
+        LOG_INFO(Render_Vulkan,
+                 "New graphics pipeline {:#x}: vs = {:#x}, fs = {:#x}, gs = {:#x}, mrt_mask = {:#x}, "
+                 "color_samples = {}/{}/{}/{}/{}/{}, depth_samples = {}, prim = {}, patch_points = {}",
+                 pipeline_hash,
+                 graphics_key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Vertex)],
+                 graphics_key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Fragment)],
+                 graphics_key.stage_hashes[static_cast<u32>(Shader::LogicalStage::Geometry)],
+                 graphics_key.mrt_mask, graphics_key.color_samples[0], graphics_key.color_samples[1],
+                 graphics_key.color_samples[2], graphics_key.color_samples[3],
+                 graphics_key.color_samples[4], graphics_key.depth_samples,
+                 u32(graphics_key.prim_type), graphics_key.patch_control_points);
+
         // Log the guest geometry state once per created pipeline. A lost device on the first draw
         // with a new pipeline is otherwise very hard to tie back to the geometry configuration
         // (see the OutputVertices clamp in RingAccessElimination).
