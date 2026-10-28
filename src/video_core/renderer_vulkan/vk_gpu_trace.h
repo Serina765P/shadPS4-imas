@@ -171,7 +171,8 @@ inline void DumpShaderStages(const std::filesystem::path& dir) {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     for (const auto& snapshot : shader_snapshots) {
-        const auto base = fmt::format("{}_{:#018x}_{}", snapshot.stage, snapshot.hash, snapshot.perm);
+        const auto base =
+            fmt::format("{}_{:#018x}_{}", snapshot.stage, snapshot.hash, snapshot.perm);
         const auto bin_path = dir / (base + ".bin");
         const auto spv_path = dir / (base + ".spv");
         IOFile{bin_path, FileAccessMode::Create}.WriteSpan(std::span<const u32>{snapshot.code});

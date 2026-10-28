@@ -402,7 +402,8 @@ u32 GraphicsPipeline::GetVertexInputs(
     for (const auto& attrib : fetch_shader->attributes) {
         const auto step_rate = attrib.GetStepRate();
         const auto buffer = attrib.GetSharp(vs_info);
-        const auto format = LiverpoolToVK::SurfaceFormat(buffer.GetDataFmt(), buffer.GetNumberFmt());
+        const auto format =
+            LiverpoolToVK::SurfaceFormat(buffer.GetDataFmt(), buffer.GetNumberFmt());
         // Games leave unused vertex streams zeroed out. Such an attribute translates to
         // VK_FORMAT_UNDEFINED and to a zero sized binding that no Vulkan buffer can cover, so the
         // pipeline ends up with an illegal vertex input state (undefined format, stride 0, unbound

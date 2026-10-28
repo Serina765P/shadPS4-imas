@@ -218,7 +218,8 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         GpuTrace::Dump("device lost on queue submit");
         GpuTrace::DumpShaderStages(Common::FS::GetUserPath(Common::FS::PathType::ShaderDir) /
                                    "dumps" / "device_lost");
-        LOG_CRITICAL(Render_Vulkan, "Querying VK_EXT_device_fault for the driver fault details now");
+        LOG_CRITICAL(Render_Vulkan,
+                     "Querying VK_EXT_device_fault for the driver fault details now");
         const std::string fault_report = instance.GetDeviceFaultReport();
         if (fault_report.empty()) {
             LOG_CRITICAL(Render_Vulkan,
