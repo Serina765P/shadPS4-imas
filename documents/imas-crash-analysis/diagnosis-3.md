@@ -103,9 +103,36 @@ NVIDIA 的表现与前几次日志一致——首绘当即非法访问，丢失�
    ⇒ 失败排列的 SPIR-V；用 `spirv-val` 校验、或直接比对 `vs_0xb3b7b928_*`。
 5. 不再崩溃 ⇒ 根因即为第 2 节所述的非法顶点输入状态。
 
-## 5. 仍需注意
+## 5. 验证结果：根因确认（`9fddbff14`，地狱特训 Pro 全程 + medley7）
 
-* 本轮修复的两处都是"非法状态 → 驱动行为未定义"，属于必须消除的缺陷；但只有拿到第 4 节的第 1/3 条证据，
-  才能断言是它们导致的这次丢失。设备丢失的报告总是晚一次提交，这一点没有变。
+同一台机器、同样冷编译（103 条新管线 / 36 次 vs、74 次 fs 编译）跑完地狱特训 Pro，日志
+`C:\Users\Serina\AppData\Roaming\shadPS4\log\shad_log.txt` 关键三行：
+
+```
+3491  Compiling vs shader 0xb3b7b928 (permutation)          ← 三次崩溃前的同一个排列
+3494  New graphics pipeline 0x59b3f0dd8289f1d6: vs = 0xb3c96b2cc65, fs = 0x1fd6f7b7218, gs = 0x0
+3505  First draw with new pipeline 0x59b3f0dd8289f1d6: indexed = true, count = 36, …, vertex buffers = 3, attributes dropped = 1
+3735  First draw with new pipeline 0xfa36d21f2da4ef4f: … attributes dropped = 1      ← 第一轮 medley 崩溃的那条管线
+3705  First draw with new pipeline 0xa273d9b1233ebd4b: … count = 0, attributes dropped = 3
+```
+
+* `0x59b3f0dd8289f1d6` 就是三次崩溃里"新管线 → 首绘 → DEVICE_LOST"的那条，现在被创建并在后续帧里反复使用；
+  整个会话 `Critical` 行为 0，日志以 `UpdatePlayTime` 正常结束。
+* 它的首绘明确报出 **`attributes dropped = 1`**：该 fetch 布局里恰有一条属性的客户机 V# 是空的，
+  即第 2 节描述的非法顶点输入状态。换言之**根因就是它**，不是绑定游标、不是 GS、不是显存、不是冷编译本身。
+* 同一会话里第一轮 medley 崩溃的管线 `0xfa36d21f2da4ef4f` 也带着 `attributes dropped = 1` 正常绘制，
+  两条崩溃路径在同一次运行里都被覆盖。
+* 其余 96 条首绘全部 `attributes dropped = 0`，说明丢弃只发生在真正带空 V# 的那几种布局上，没有普适性副作用。
+
+## 6. 仍需注意
+
+* 被丢弃的输入 location 只读回未定义值；对空流（base 0 / size 0）而言客户机原本也只会拿到地址 0 的内容，
+  实测画面正常。若后续在其他游戏看到某个属性明显错位，说明该 V# 是"看起来空、实际被 shader 使用"，
+  届时改成绑定零缓冲 + 匹配格式而不是丢弃。
+* `GetVertexInputs()` 在建管线路径上的告警（`N vertex attribute(s) have an empty guest descriptor`）
+  只在**没有** `VK_EXT_vertex_input_dynamic_state` 时打印；NVIDIA 走动态顶点输入，所以丢弃数出现在
+  `First draw with new pipeline …` 那一行里，这是正常的。
+* 设备丢失的报告总是晚一次提交，这一点没有变；`vkGetDeviceFaultInfoEXT` 在该驱动上仍会让进程崩溃，
+  但它已经是丢失处理的最后一步，证据不再受影响。
 * 上游主线比本 fork 多 424 个提交，其中 `c09fa46a`（vertex/index 缓冲跟踪）、`e9f2c54c` + `23c41333`
   （null 索引缓冲）都是同类真修复，已被本轮按最小改动移植；其余不做整体合并。
