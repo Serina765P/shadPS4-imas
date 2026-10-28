@@ -148,7 +148,7 @@ inline void PushShaderStage(std::string stage, u64 hash, size_t perm, std::span<
             shader_snapshot_bytes.load(std::memory_order_relaxed) + new_bytes >
                 MaxShaderSnapshotBytes)) {
         const auto& oldest = shader_snapshots.front();
-        shader_snapshot_bytes.fetch_sub(oldest.code.size_bytes() + oldest.spv.size_bytes());
+        shader_snapshot_bytes.fetch_sub((oldest.code.size() + oldest.spv.size()) * sizeof(u32));
         shader_snapshots.pop_front();
     }
     ShaderStageSnapshot snapshot{};
@@ -175,8 +175,10 @@ inline void DumpShaderStages(const std::filesystem::path& dir) {
             fmt::format("{}_{:#018x}_{}", snapshot.stage, snapshot.hash, snapshot.perm);
         const auto bin_path = dir / (base + ".bin");
         const auto spv_path = dir / (base + ".spv");
-        IOFile{bin_path, FileAccessMode::Create}.WriteSpan(std::span<const u32>{snapshot.code});
-        IOFile{spv_path, FileAccessMode::Create}.WriteSpan(std::span<const u32>{snapshot.spv});
+        Common::FS::IOFile{bin_path, Common::FS::FileAccessMode::Create}
+            .WriteSpan(std::span<const u32>{snapshot.code});
+        Common::FS::IOFile{spv_path, Common::FS::FileAccessMode::Create}
+            .WriteSpan(std::span<const u32>{snapshot.spv});
         LOG_CRITICAL(Render_Vulkan, "Dumped {} ({} guest dwords, {} SPIR-V dwords)", base,
                      snapshot.code.size(), snapshot.spv.size());
     }
