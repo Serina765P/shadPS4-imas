@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <boost/container/small_vector.hpp>
 #include "common/lru_cache.h"
 #include "common/slot_vector.h"
@@ -88,6 +90,11 @@ public:
     /// Retrieves the buffer with the specified id.
     [[nodiscard]] Buffer& GetBuffer(BufferId id) {
         return slot_buffers[id];
+    }
+
+    /// Retrieves the zero filled buffer used when a draw references no index data.
+    [[nodiscard]] const Buffer* GetNullIndexBuffer() const noexcept {
+        return null_index_buffer.get();
     }
 
     /// Retrieves a utility buffer optimized for specified memory usage.
@@ -217,6 +224,10 @@ private:
     StreamBuffer device_buffer;
     Buffer gds_buffer;
     Buffer bda_pagetable_buffer;
+    /// Zero filled buffer bound when a draw has no index data mapped (null index base address or a
+    /// range that falls outside guest memory). Binding the stale previous buffer instead lets the
+    /// index fetcher read an arbitrary address.
+    std::unique_ptr<Buffer> null_index_buffer;
     Common::SlotVector<Buffer> slot_buffers;
     u64 total_used_memory = 0;
     u64 trigger_gc_memory = 0;

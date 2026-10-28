@@ -4,6 +4,7 @@
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/logging/log.h"
+#include "common/path_util.h"
 #include "common/thread.h"
 #include "imgui/renderer/texture_manager.h"
 #include "video_core/renderer_vulkan/vk_gpu_trace.h"
@@ -210,6 +211,14 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
                      "workload rerun with vkValidation=true, vkValidationSync=true and "
                      "shouldDumpShaders=true, and check the Windows event log for a display driver "
                      "reset (nvlddmkm event 4101) to distinguish a hung GPU from an illegal access.");
+        // The driver's own fault report is queried *last*: on the NVIDIA driver this was reproduced
+        // with, vkGetDeviceFaultInfoEXT raises an access violation after a device loss and used to
+        // kill the process before any of the evidence above/below was written. Everything the
+        // emulator already knows is written to disk first.
+        GpuTrace::Dump("device lost on queue submit");
+        GpuTrace::DumpShaderStages(Common::FS::GetUserPath(Common::FS::PathType::ShaderDir) /
+                                   "dumps" / "device_lost");
+        LOG_CRITICAL(Render_Vulkan, "Querying VK_EXT_device_fault for the driver fault details now");
         const std::string fault_report = instance.GetDeviceFaultReport();
         if (fault_report.empty()) {
             LOG_CRITICAL(Render_Vulkan,
@@ -218,7 +227,6 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         } else {
             LOG_CRITICAL(Render_Vulkan, "Driver device fault details: {}", fault_report);
         }
-        GpuTrace::Dump("device lost on queue submit");
     }
     ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
 

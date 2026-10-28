@@ -63,8 +63,15 @@ GraphicsPipeline::GraphicsPipeline(
         VertexInputs<AmdGpu::Buffer> guest_buffers;
         if (!instance.IsVertexInputDynamicState()) {
             const auto& vs_info = runtime_infos[u32(Shader::LogicalStage::Vertex)].vs_info;
-            GetVertexInputs(sdata.vertex_attributes, sdata.vertex_bindings, sdata.divisors,
-                            guest_buffers, vs_info.step_rate_0, vs_info.step_rate_1);
+            const u32 dropped_attributes =
+                GetVertexInputs(sdata.vertex_attributes, sdata.vertex_bindings, sdata.divisors,
+                                guest_buffers, vs_info.step_rate_0, vs_info.step_rate_1);
+            if (dropped_attributes != 0) {
+                LOG_WARNING(Render_Vulkan,
+                            "Graphics pipeline {}: {} vertex attribute(s) have an empty guest "
+                            "descriptor and are not bound",
+                            debug_str, dropped_attributes);
+            }
         }
     }
 
@@ -382,22 +389,34 @@ GraphicsPipeline::GraphicsPipeline(
 GraphicsPipeline::~GraphicsPipeline() = default;
 
 template <typename Attribute, typename Binding>
-void GraphicsPipeline::GetVertexInputs(
+u32 GraphicsPipeline::GetVertexInputs(
     VertexInputs<Attribute>& attributes, VertexInputs<Binding>& bindings,
     VertexInputs<vk::VertexInputBindingDivisorDescriptionEXT>& divisors,
     VertexInputs<AmdGpu::Buffer>& guest_buffers, u32 step_rate_0, u32 step_rate_1) const {
     using InstanceIdType = Shader::Gcn::VertexAttribute::InstanceIdType;
     if (!fetch_shader || fetch_shader->attributes.empty()) {
-        return;
+        return 0;
     }
     const auto& vs_info = GetStage(Shader::LogicalStage::Vertex);
+    u32 dropped_attributes = 0;
     for (const auto& attrib : fetch_shader->attributes) {
         const auto step_rate = attrib.GetStepRate();
         const auto buffer = attrib.GetSharp(vs_info);
+        const auto format = LiverpoolToVK::SurfaceFormat(buffer.GetDataFmt(), buffer.GetNumberFmt());
+        // Games leave unused vertex streams zeroed out. Such an attribute translates to
+        // VK_FORMAT_UNDEFINED and to a zero sized binding that no Vulkan buffer can cover, so the
+        // pipeline ends up with an illegal vertex input state (undefined format, stride 0, unbound
+        // binding) that drivers either silently accept or fault on during the first draw. An input
+        // location that no attribute describes reads an undefined value, which is exactly what an
+        // empty stream provided. Never emit the illegal description.
+        if (buffer.base_address == 0 || buffer.GetSize() == 0 || format == vk::Format::eUndefined) {
+            ++dropped_attributes;
+            continue;
+        }
         attributes.push_back(Attribute{
             .location = attrib.semantic,
             .binding = attrib.semantic,
-            .format = LiverpoolToVK::SurfaceFormat(buffer.GetDataFmt(), buffer.GetNumberFmt()),
+            .format = format,
             .offset = 0,
         });
         bindings.push_back(Binding{
@@ -419,15 +438,16 @@ void GraphicsPipeline::GetVertexInputs(
         }
         guest_buffers.emplace_back(buffer);
     }
+    return dropped_attributes;
 }
 
 // Declare templated GetVertexInputs for necessary types.
-template void GraphicsPipeline::GetVertexInputs(
+template u32 GraphicsPipeline::GetVertexInputs(
     VertexInputs<vk::VertexInputAttributeDescription>& attributes,
     VertexInputs<vk::VertexInputBindingDescription>& bindings,
     VertexInputs<vk::VertexInputBindingDivisorDescriptionEXT>& divisors,
     VertexInputs<AmdGpu::Buffer>& guest_buffers, u32 step_rate_0, u32 step_rate_1) const;
-template void GraphicsPipeline::GetVertexInputs(
+template u32 GraphicsPipeline::GetVertexInputs(
     VertexInputs<vk::VertexInputAttributeDescription2EXT>& attributes,
     VertexInputs<vk::VertexInputBindingDescription2EXT>& bindings,
     VertexInputs<vk::VertexInputBindingDivisorDescriptionEXT>& divisors,

@@ -224,13 +224,19 @@ void Rasterizer::Draw(bool is_indexed, u32 index_offset) {
     GpuTrace::PushDraw(pipeline_hash, is_indexed, regs.num_indices,
                        regs.num_instances.NumInstances(), vertex_offset, instance_offset,
                        index_offset);
+    GpuTrace::PushDrawState(pipeline_hash, is_indexed, regs.index_base_address.Address<VAddr>(),
+                            index_offset, regs.num_indices, regs.num_instances.NumInstances(),
+                            regs.index_buffer_type.index_type == AmdGpu::IndexType::Index16);
 
     if (const auto new_pipeline = pipeline_cache.TakePendingNewPipeline(); new_pipeline) {
         LOG_INFO(Render_Vulkan,
                  "First draw with new pipeline {:#x}: indexed = {}, count = {}, instances = {}, "
-                 "vertex_offset = {}, instance_offset = {}, index_offset = {:#x}",
+                 "vertex_offset = {}, instance_offset = {}, index_offset = {:#x}, index base = "
+                 "{:#x}, vertex buffers = {}, attributes dropped = {}",
                  *new_pipeline, is_indexed, regs.num_indices, regs.num_instances.NumInstances(),
-                 vertex_offset, instance_offset, index_offset);
+                 vertex_offset, instance_offset, index_offset,
+                 regs.index_base_address.Address<VAddr>(), GpuTrace::last_draw.num_vertex_buffers,
+                 GpuTrace::last_draw.dropped_attributes);
     }
 
     const auto cmdbuf = scheduler.CommandBuffer();

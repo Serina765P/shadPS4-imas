@@ -10,6 +10,7 @@
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/buffer_cache/memory_tracker.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
+#include "video_core/renderer_vulkan/vk_gpu_trace.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/texture_cache.h"
@@ -17,6 +18,8 @@
 namespace VideoCore {
 
 static constexpr size_t DataShareBufferSize = 64_KB;
+/// Size of the zero filled buffer bound for draws that reference no index data.
+static constexpr size_t NullIndexBufferSize = 16;
 static constexpr size_t StagingBufferSize = 512_MB;
 static constexpr size_t DownloadBufferSize = 32_MB;
 static constexpr size_t UboStreamBufferSize = 64_MB;
@@ -38,6 +41,11 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     Vulkan::SetObjectName(instance.GetDevice(), gds_buffer.Handle(), "GDS Buffer");
     Vulkan::SetObjectName(instance.GetDevice(), bda_pagetable_buffer.Handle(),
                           "BDA Page Table Buffer");
+
+    null_index_buffer = std::make_unique<Buffer>(instance, scheduler, MemoryUsage::DeviceLocal, 0,
+                                                 AllFlags, NullIndexBufferSize);
+    Vulkan::SetObjectName(instance.GetDevice(), null_index_buffer->Handle(), "Null Index Buffer");
+    null_index_buffer->Fill(0, NullIndexBufferSize, 0);
 
     memory_tracker = std::make_unique<MemoryTracker>(tracker);
 
@@ -182,14 +190,17 @@ void BufferCache::BindVertexBuffers(
     Vulkan::VertexInputs<vk::VertexInputBindingDescription2EXT> bindings;
     Vulkan::VertexInputs<vk::VertexInputBindingDivisorDescriptionEXT> divisors;
     Vulkan::VertexInputs<AmdGpu::Buffer> guest_buffers;
-    pipeline.GetVertexInputs(attributes, bindings, divisors, guest_buffers,
-                             regs.vgt_instance_step_rate_0, regs.vgt_instance_step_rate_1);
+    const u32 dropped_attributes =
+        pipeline.GetVertexInputs(attributes, bindings, divisors, guest_buffers,
+                                 regs.vgt_instance_step_rate_0, regs.vgt_instance_step_rate_1);
 
     if (instance.IsVertexInputDynamicState()) {
         // Update current vertex inputs.
         const auto cmdbuf = scheduler.CommandBuffer();
         cmdbuf.setVertexInputEXT(bindings, attributes);
     }
+
+    Vulkan::GpuTrace::PushVertexState(static_cast<u32>(bindings.size()), dropped_attributes);
 
     if (bindings.empty()) {
         // If there are no bindings, there is nothing further to do.
@@ -268,13 +279,19 @@ void BufferCache::BindVertexBuffers(
         host_strides.push_back(buffer.GetStride());
     }
 
+    // Bind each buffer at the index its own binding description names. The semantic of a guest
+    // attribute is not guaranteed to be its position in the list once attributes without a usable
+    // descriptor are dropped, and binding a buffer at the wrong index makes the vertex fetcher read
+    // another stream with this stream's stride.
     const auto cmdbuf = scheduler.CommandBuffer();
-    const auto num_buffers = guest_buffers.size();
-    if (instance.IsVertexInputDynamicState()) {
-        cmdbuf.bindVertexBuffers(0, num_buffers, host_buffers.data(), host_offsets.data());
-    } else {
-        cmdbuf.bindVertexBuffers2(0, num_buffers, host_buffers.data(), host_offsets.data(),
-                                  host_sizes.data(), host_strides.data());
+    for (u32 i = 0; i < static_cast<u32>(bindings.size()); ++i) {
+        const u32 binding = bindings[i].binding;
+        if (instance.IsVertexInputDynamicState()) {
+            cmdbuf.bindVertexBuffers(binding, 1, &host_buffers[i], &host_offsets[i]);
+        } else {
+            cmdbuf.bindVertexBuffers2(binding, 1, &host_buffers[i], &host_offsets[i],
+                                      &host_sizes[i], &host_strides[i]);
+        }
     }
 }
 
@@ -286,17 +303,39 @@ void BufferCache::BindIndexBuffer(
     const bool is_index16 = regs.index_buffer_type.index_type == AmdGpu::IndexType::Index16;
     const vk::IndexType index_type = is_index16 ? vk::IndexType::eUint16 : vk::IndexType::eUint32;
     const u32 index_size = is_index16 ? sizeof(u16) : sizeof(u32);
-    const VAddr index_address =
-        regs.index_base_address.Address<VAddr>() + index_offset * index_size;
+    const VAddr base_address = regs.index_base_address.Address<VAddr>();
+    const VAddr index_address = base_address + u64(index_offset) * index_size;
+    const u64 requested_size = u64(regs.num_indices) * index_size;
+    // Never bind a range that leaves guest memory. The fetcher otherwise reads whatever follows the
+    // guest allocation, and the index values it returns can make the vertex fetcher read an
+    // arbitrary address. A null base address is a legal guest state and must not turn into a
+    // binding at address zero either.
+    const u64 mapped_size =
+        base_address != 0 ? memory->ClampRangeSize(index_address, requested_size) : 0;
+    const u32 index_buffer_size = static_cast<u32>(Common::AlignDown(mapped_size, index_size));
+    const auto cmdbuf = scheduler.CommandBuffer();
+    if (index_buffer_size == 0) {
+        // A null index base or an index range that is not backed by guest memory is a legal guest
+        // state; the fetcher still needs a valid binding, so give it a buffer full of zeroes (index
+        // zero). Report it once, it means the guest is drawing indices from nowhere.
+        static bool warned{};
+        if (!warned && regs.num_indices != 0) {
+            warned = true;
+            LOG_WARNING(Render_Vulkan,
+                        "Indexed draw has no mapped index data (index base {:#x}, offset {}, {} "
+                        "indices), binding the zero filled index buffer instead",
+                        base_address, index_offset, regs.num_indices);
+        }
+        cmdbuf.bindIndexBuffer(GetNullIndexBuffer()->Handle(), 0, index_type);
+        return;
+    }
 
     // Bind index buffer.
-    const u32 index_buffer_size = regs.num_indices * index_size;
     const auto [vk_buffer, offset] = ObtainBuffer(index_address, index_buffer_size, false);
     if (auto barrier = vk_buffer->GetBarrier(vk::AccessFlagBits2::eIndexRead,
                                              vk::PipelineStageFlagBits2::eIndexInput)) {
         barriers.emplace_back(*barrier);
     }
-    const auto cmdbuf = scheduler.CommandBuffer();
     cmdbuf.bindIndexBuffer(vk_buffer->Handle(), offset, index_type);
 }
 

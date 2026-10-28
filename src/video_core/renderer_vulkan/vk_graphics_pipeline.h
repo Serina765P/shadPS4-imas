@@ -101,11 +101,13 @@ public:
     }
 
     /// Gets the attributes and bindings for vertex inputs.
+    /// Returns the number of attributes that were dropped because their guest descriptor cannot be
+    /// translated into valid Vulkan vertex input state.
     template <typename Attribute, typename Binding>
-    void GetVertexInputs(VertexInputs<Attribute>& attributes, VertexInputs<Binding>& bindings,
-                         VertexInputs<vk::VertexInputBindingDivisorDescriptionEXT>& divisors,
-                         VertexInputs<AmdGpu::Buffer>& guest_buffers, u32 step_rate_0,
-                         u32 step_rate_1) const;
+    u32 GetVertexInputs(VertexInputs<Attribute>& attributes, VertexInputs<Binding>& bindings,
+                        VertexInputs<vk::VertexInputBindingDivisorDescriptionEXT>& divisors,
+                        VertexInputs<AmdGpu::Buffer>& guest_buffers, u32 step_rate_0,
+                        u32 step_rate_1) const;
 
 private:
     void BuildDescSetLayout(bool preloading);

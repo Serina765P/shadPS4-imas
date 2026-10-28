@@ -14,7 +14,10 @@ namespace Serialization {
 /* You should increment versions below once corresponding serialization scheme is changed. */
 static constexpr u32 ShaderBinaryVersion = 4u;
 static constexpr u32 ShaderMetaVersion = 3u;
-static constexpr u32 PipelineKeyVersion = 2u;
+// Bumped from 2 to 3: pipeline descriptors used to be serialized with the illegal vertex input
+// state described in vk_graphics_pipeline.cpp (undefined formats and unbound zero sized bindings),
+// and reusing them would keep presenting that state to the driver.
+static constexpr u32 PipelineKeyVersion = 3u;
 } // namespace Serialization
 
 namespace Vulkan {
