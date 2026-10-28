@@ -94,5 +94,8 @@ for c in <候选提交>; do git cherry-pick -n $c; git cherry-pick --abort; done
 未纳入本轮（留作独立 A/B，避免混淆稳定性结论）：
 * 撤销 `005f24b37`（跳过渲染目标的 `UpdateImage`）：行为改动，与渲染通道优化互相影响。
 * 丢弃 `726272ba`（GS `OutputVertices` 钳制）：只在全量合并上游时成立。
+构建：CI run [40646944820](https://github.com/Serina765P/shadPS4-imas/actions/runs/40646944820)，
+`52147580a`，`Build windows-x64` 与 `Build linux-x64`（含 CPU 测试）均 success；
+产物 `shadps4-idolmaster-windows-x64-52147580a649a94c72b1c161d684d0eea0b14ba5`。
 新增可观测点：`Rejecting invalid S# max_aniso=…, filter_mode=…, mip_filter=…, border_color_type=…,
 border_color_base=…`。出现即说明该管线送来了非法 S#，与本轮顶点输入修复同属"客户机描述符未初始化"类。
