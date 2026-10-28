@@ -494,8 +494,15 @@ ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId image_id) {
     auto& src_image = slot_images[image_id];
     auto& new_image = slot_images[new_image_id];
 
+    // Only carry over the old contents when they hold GPU-written data that guest memory lacks.
+    // A CPU-dirty source is stale (e.g. a streamed texture rewritten in a reused pool slot);
+    // copying it would overwrite the fresh upload with old data.
+    const bool src_has_gpu_data = src_image.HasGpuValidData();
+
     RefreshImage(new_image);
-    new_image.CopyImage(src_image);
+    if (src_has_gpu_data) {
+        new_image.CopyImage(src_image);
+    }
 
     if (src_image.binding.is_bound || src_image.binding.is_target) {
         src_image.binding.needs_rebind = 1u;
@@ -505,6 +512,9 @@ ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId image_id) {
 
     TrackImage(new_image_id);
     new_image.flags &= ~ImageFlagBits::Dirty;
+    if (src_has_gpu_data) {
+        new_image.flags |= ImageFlagBits::GpuModified;
+    }
     return new_image_id;
 }
 

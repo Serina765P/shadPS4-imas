@@ -106,8 +106,12 @@ struct Image {
         return track_addr != 0 && track_addr_end != 0;
     }
 
-    bool SafeToDownload() const {
+    bool HasGpuValidData() const {
         return True(flags & ImageFlagBits::GpuModified) && False(flags & (ImageFlagBits::Dirty));
+    }
+
+    bool SafeToDownload() const {
+        return HasGpuValidData();
     }
 
     void AssociateDepth(ImageId depth_image_id, u64 depth_image_uid) {

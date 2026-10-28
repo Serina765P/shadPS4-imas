@@ -46,8 +46,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 | 提交 | PR | 内容 | 规模 | 价值 |
 | :--- | :--- | :--- | :--- | :--- |
 | `1a0f5be8d` | #5137 | `Sampler::Valid()` 收窄 + 非法 S# 绑默认 sampler | 2 文件 / 14 行 | **高**：与本次根因同属"客户机描述符全零 → 非法驱动状态" |
-| `4f1a70f6` | #5504 | `RefreshImage` 时重置 hash | 1 文件 | 高，但须与 3.4 的 `005f24b37` 处置一起做 |
-| `699009c9` | #5444 | `ExpandImage` 不复制陈旧 CPU-dirty 内容 | 1 文件 | 同上 |
+| `699009c9` | #5444 | `ExpandImage` 不复制陈旧 CPU-dirty 内容 | 1 文件 | 中高：流式纹理槽位复用时的陈旧覆盖 |
+| `4f1a70f6` | #5504 | `RefreshImage` 时重置 `gpu_hash` | 1 文件 | **不适用**：0.16.1 没有 `gpu_hash` 字段（`grep -rn gpu_hash src/video_core` 为空），`TouchImage` 也不碰任何 hash，该缺陷的等价实现不存在 |
 ### 3.3 不取（0.20.x 结构重构，与 0.16.1 不可共存）
 `Runtime` 抽象与 sparse arenas（#5047 / #5193 / #5233，`buffer_cache.h` 里出现 `class Runtime`、
 `ObtainBufferForImage`）、渲染优化 pt1/pt2（#5112 / #5219）、runtime info tagged union（#5027）、
@@ -81,3 +81,18 @@ git merge-tree --write-tree HEAD upstream/main | grep -c CONFLICT
 git diff bf794b3f nyces/imas --stat                             # 他的真实改动
 for c in <候选提交>; do git cherry-pick -n $c; git cherry-pick --abort; done
 ```
+
+## 6. 本轮实际落地（测试构建）
+| 方式 | 提交 | 说明 |
+| :--- | :--- | :--- |
+| cherry-pick `-x` | `6752d8b19` #5447 | `BUFFER_WBINVL1_SC` / `BUFFER_WBINVL1` 译为 `DeviceMemoryBarrier()`；MUBUF 表项参数量归零 |
+| cherry-pick `-x` | `c679ce609` #5229 | depth-overlap 新建子资源先 `RefreshImage` 再清 Dirty |
+| cherry-pick `-x` | `fec7684d7` #5463 | 重映射 compute queue 的起始环偏移 |
+| 手工移植 | #5137 | `Sampler::Valid()` 增加范围校验；`BindTextures` 对非法 S#（或自定义 border 且 `ta_bc_base` 为 0）改用默认 sampler 并告警 |
+| 手工移植 | #5444 | 新增 `Image::HasGpuValidData()`；`ExpandImage` 仅在源图带有效 GPU 数据时 `CopyImage` 并继承 `GpuModified` |
+| 未落地 | #5504 | 见 3.2：0.16.1 无 `gpu_hash`，无可修的等价缺陷 |
+未纳入本轮（留作独立 A/B，避免混淆稳定性结论）：
+* 撤销 `005f24b37`（跳过渲染目标的 `UpdateImage`）：行为改动，与渲染通道优化互相影响。
+* 丢弃 `726272ba`（GS `OutputVertices` 钳制）：只在全量合并上游时成立。
+新增可观测点：`Rejecting invalid S# max_aniso=…, filter_mode=…, mip_filter=…, border_color_type=…,
+border_color_base=…`。出现即说明该管线送来了非法 S#，与本轮顶点输入修复同属"客户机描述符未初始化"类。
