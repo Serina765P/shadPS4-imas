@@ -151,3 +151,63 @@ jobs:
             build/CMakeFiles/CMakeConfigureLog.yaml
             build-tests/CMakeFiles/CMakeConfigureLog.yaml
           if-no-files-found: ignore
+
+  publish:
+    name: Publish release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read the version from CMakeLists
+        id: version
+        run: |
+          major=$(sed -nE 's/^set\(EMULATOR_VERSION_MAJOR "([^"]*)"\)$/\1/p' CMakeLists.txt)
+          minor=$(sed -nE 's/^set\(EMULATOR_VERSION_MINOR "([^"]*)"\)$/\1/p' CMakeLists.txt)
+          patch=$(sed -nE 's/^set\(EMULATOR_VERSION_PATCH "([^"]*)"\)$/\1/p' CMakeLists.txt)
+          echo "number=$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+          echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether the release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${{ steps.version.outputs.tag }} already exists, nothing to publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v7
+        if: steps.existing.outputs.exists == 'false'
+        with:
+          path: artifacts
+
+      - name: Package the release assets
+        if: steps.existing.outputs.exists == 'false'
+        run: |
+          cd "artifacts/shadps4-idolmaster-windows-x64-${{ github.sha }}"
+          zip -qr "$GITHUB_WORKSPACE/shadps4-idolmaster-windows-x64.zip" .
+          cd "$GITHUB_WORKSPACE"
+          cp "artifacts/shadps4-idolmaster-linux-x64-${{ github.sha }}/shadps4-idolmaster-linux-x64.tar.gz" .
+          ls -l shadps4-idolmaster-windows-x64.zip shadps4-idolmaster-linux-x64.tar.gz
+
+      - name: Create the release
+        if: steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="documents/release-notes-${{ steps.version.outputs.number }}.md"
+          test -f "$notes"
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --notes-file "$notes" \
+            shadps4-idolmaster-windows-x64.zip \
+            shadps4-idolmaster-linux-x64.tar.gz
